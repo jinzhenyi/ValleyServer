@@ -82,6 +82,16 @@ namespace HeadlessServer
 
             try
             {
+                Console.WriteLine("[Shutdown] Saving calendar and farm world...");
+                worldSaveManager?.Save();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[Shutdown] Saving world failed: {ex}");
+            }
+
+            try
+            {
                 // Tells every connected client why the connection is ending before the
                 // socket closes, instead of dropping them into a timeout.
                 server.Shutdown("Server is shutting down");

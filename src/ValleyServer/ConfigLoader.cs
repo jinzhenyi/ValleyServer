@@ -186,6 +186,9 @@ namespace HeadlessServer
             world.StartingCabins = RequireRange("World.StartingCabins", world.StartingCabins, 0, 32, 4);
             world.MaxFarmhands = RequireRange("World.MaxFarmhands", world.MaxFarmhands, 1, 32, 4);
             world.StarterParsnipSeeds = RequireRange("World.StarterParsnipSeeds", world.StarterParsnipSeeds, 0, 999, 15);
+            world.StartingYear = RequireRange("World.StartingYear", world.StartingYear, 1, int.MaxValue, 1);
+            world.StartingSeason = RequireRange("World.StartingSeason", world.StartingSeason, 0, 3, 0);
+            world.StartingDayOfMonth = RequireRange("World.StartingDayOfMonth", world.StartingDayOfMonth, 1, 28, 1);
 
             config.Simulation.MillisecondsPerTenMinutes = RequireRange(
                 "Simulation.MillisecondsPerTenMinutes", config.Simulation.MillisecondsPerTenMinutes, 1, 3600000, 1000);
@@ -247,6 +250,8 @@ namespace HeadlessServer
             Console.WriteLine($"[Config]   World.FarmType={world.FarmType} World.FarmName={world.FarmName} World.HostName={world.HostName} " +
                               $"World.Seed={world.Seed} World.StartingCabins={world.StartingCabins} World.CabinsSeparate={world.CabinsSeparate} " +
                               $"World.MaxFarmhands={world.MaxFarmhands} World.StarterParsnipSeeds={world.StarterParsnipSeeds}");
+            Console.WriteLine($"[Config]   World.StartingYear={world.StartingYear} World.StartingSeason={world.StartingSeason} " +
+                              $"World.StartingDayOfMonth={world.StartingDayOfMonth} World.PersistWorld={world.PersistWorld}");
             Console.WriteLine($"[Config]   Simulation.MillisecondsPerTenMinutes={config.Simulation.MillisecondsPerTenMinutes}");
             Console.WriteLine($"[Config]   Paths.ContentPath={contentPath} Paths.SaveDirectory={config.Paths.SaveDirectory}");
         }

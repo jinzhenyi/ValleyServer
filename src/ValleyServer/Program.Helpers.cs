@@ -40,6 +40,59 @@ namespace HeadlessServer
         private static Thread? headlessNewDayThread;
         private static volatile bool headlessNewDayActive;
         private static long lastNewDayMonitorMs;
+        // Set by the overnight worker once the day roll has finished; consumed by the main
+        // loop so calendar/weather/world-save work stays on the thread that owns game state.
+        private static volatile bool headlessDayRollPending;
+
+        private static ICalendarService? calendarService;
+        private static IWeatherService? weatherService;
+        private static ISeasonalWorldUpdater? seasonalWorldUpdater;
+        private static ICropDayUpdater? cropDayUpdater;
+        private static IWorldSaveManager? worldSaveManager;
+
+        /// <summary>
+        /// Creates the season-gameplay services and wires the season-change signal to the
+        /// seasonal world updater. Called once during startup, after locations exist.
+        /// </summary>
+        private static void InitializeSeasonServices()
+        {
+            calendarService = new CalendarService();
+            weatherService = new WeatherService();
+            var updater = new SeasonalWorldUpdater();
+            seasonalWorldUpdater = updater;
+            cropDayUpdater = updater;
+            worldSaveManager = new WorldSaveManager(calendarService, weatherService);
+            calendarService.SeasonChanged += (_, current) => updater.ApplySeason((Season)current.SeasonIndex);
+            Console.WriteLine("[Season] Season services initialized.");
+        }
+
+        /// <summary>
+        /// Main-thread completion of an overnight roll: validate/advance the calendar, roll
+        /// weather and run crop day updates when the vanilla path skipped them, then persist
+        /// the world so a crash does not lose the day.
+        /// </summary>
+        private static void ProcessHeadlessDayRoll()
+        {
+            if (!headlessDayRollPending)
+            {
+                return;
+            }
+            headlessDayRollPending = false;
+
+            if (calendarService == null)
+            {
+                return;
+            }
+
+            calendarService.ReconcileAfterOvernight(out _, out _);
+            if (calendarService.LastReconcileWasManual)
+            {
+                weatherService?.RollForNewDay();
+                cropDayUpdater?.RunDayUpdate(Game1.dayOfMonth);
+            }
+            weatherService?.SyncToNetWorldState();
+            worldSaveManager?.Save();
+        }
         // Vanilla drives the overnight network pump from the overnight worker. Keep the
         // headless main loop from concurrently entering the same game/network state.
 
@@ -382,6 +435,36 @@ namespace HeadlessServer
             }
         }
 
+        /// <summary>
+        /// Verifies the pure calendar arithmetic that backs the season rollover rules:
+        /// end-of-season wrap, winter-to-spring year increment and multi-season jumps.
+        /// </summary>
+        private static void RunSeasonSelfTest()
+        {
+            Console.WriteLine("[SelfTest] Running season advance self-test...");
+            try
+            {
+                bool pass = true;
+
+                CalendarSnapshot summerStart = CalendarService.Advance(new CalendarSnapshot(1, 0, 28), 1);
+                pass &= summerStart == new CalendarSnapshot(1, 1, 1);
+
+                CalendarSnapshot newYear = CalendarService.Advance(new CalendarSnapshot(3, 3, 28), 1);
+                pass &= newYear == new CalendarSnapshot(4, 0, 1);
+
+                CalendarSnapshot multi = CalendarService.Advance(new CalendarSnapshot(1, 0, 1), 90);
+                pass &= multi == new CalendarSnapshot(1, 3, 7);
+
+                Console.WriteLine(pass
+                    ? "[SelfTest] Season advance PASS."
+                    : $"[SelfTest] Season advance FAIL: wrap={summerStart} year={newYear} multi={multi}");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[SelfTest] Season advance crashed: {ex}");
+            }
+        }
+
         private static void SyncDisconnectingFarmers()
         {
             try
@@ -531,6 +614,8 @@ namespace HeadlessServer
                     try { Game1.timeOfDay = 600; Game1.netWorldState?.Value?.UpdateFromGame1(); } catch { }
                     Console.WriteLine($"[HeadlessNewDay] newDay cleared (time reset to {Game1.timeOfDay}).");
                     Console.WriteLine(DescribeNewDayState("worker-finally"));
+                    // Let the main loop finish the day on the game-state-owning thread.
+                    headlessDayRollPending = true;
                 }
             })
             {

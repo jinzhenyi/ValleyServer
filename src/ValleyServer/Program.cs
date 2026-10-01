@@ -35,6 +35,10 @@ namespace HeadlessServer
         static Dictionary<long, NetConnection> clientConnections = new Dictionary<long, NetConnection>();
         static string? actualProtocolVersion = null;
         static long headlessClockAccumulatorMs = 0;
+
+        /// <summary>Server release version, read from the assembly metadata (set in the csproj).</summary>
+        internal static string ServerVersion =>
+            typeof(Program).Assembly.GetName().Version?.ToString(3) ?? "0.0.0";
         static long headlessSimulationTimeMs = 0;
         static bool discardNextHeadlessClockElapsed = false;
         static readonly HashSet<long> serverModifiedFarmerIds = new HashSet<long>();
@@ -128,7 +132,7 @@ namespace HeadlessServer
 
         static void Main(string[] args)
         {
-            Console.WriteLine("Starting Headless Stardew Valley Server (New Farmhand Customization Stage)...");
+            Console.WriteLine($"Starting Headless Stardew Valley Server v{ServerVersion} (New Farmhand Customization Stage)...");
 
             // Resolve the effective configuration before any game state is mocked: the
             // content manager and every world/network setting below read from it.
@@ -308,9 +312,9 @@ namespace HeadlessServer
             Game1.uniqueIDForThisGame = worldConfig.Seed != 0
                 ? worldConfig.Seed
                 : (ulong)(DateTime.UtcNow.Ticks / TimeSpan.TicksPerSecond);
-            Game1.season = Season.Spring;
-            Game1.dayOfMonth = 1;
-            Game1.year = 1;
+            Game1.season = (Season)Math.Clamp(worldConfig.StartingSeason, 0, 3);
+            Game1.dayOfMonth = Math.Clamp(worldConfig.StartingDayOfMonth, 1, 28);
+            Game1.year = Math.Max(1, worldConfig.StartingYear);
             // Farmhands need real cabin interiors and beds for spawn and pass-out recovery.
             Game1.startingCabins = worldConfig.StartingCabins;
             Game1.cabinsSeparate = worldConfig.CabinsSeparate;
@@ -483,6 +487,17 @@ namespace HeadlessServer
             // Do this after the farm is registered, since Cabin's constructor queries Game1.getFarm().
             EnsureFarmhandHomesAndBeds(farm);
 
+            // Season gameplay: restore the persisted world (calendar, weather, crops/terrain) or
+            // fall back to the configured starting date, then refresh the world's seasonal look.
+            InitializeSeasonServices();
+            bool worldRestored = worldSaveManager!.TryLoad();
+            if (!worldRestored)
+            {
+                calendarService!.InitializeFromConfig();
+            }
+            seasonalWorldUpdater!.ApplySeason((Season)calendarService!.Current.SeasonIndex);
+            Console.WriteLine($"[Season] World season ready: {calendarService.Current}, weather={weatherService!.Current}.");
+
             // The location update path queries the music system (getMusicTrackName via
             // isMusicContextActiveButNotPlaying). Its backing dictionary is an instance
             // field on the Game1 singleton that our uninitialized instance never created,
@@ -611,6 +626,7 @@ namespace HeadlessServer
             // clients: target assignment must work for an inhabited location, or a real
             // client could never receive Debris.player and pick anything up.
             RunDebrisSelfTest(farm);
+            RunSeasonSelfTest();
 
             // 5. Message loop. Ctrl+C/console shutdown stops accepting work cleanly.
             RegisterBuiltInCommands();
@@ -1067,6 +1083,10 @@ namespace HeadlessServer
                     {
                         Game1.netWorldState.Value.UpdateFromGame1();
                     }
+
+                    // Complete an overnight roll whose worker has finished: validate/advance the
+                    // calendar, roll weather and run crop day updates when vanilla skipped them.
+                    ProcessHeadlessDayRoll();
 
                     // Vanilla host flow (Game1.UpdateLocations -> _UpdateLocation): inhabited
                     // locations run UpdateWhenCurrentLocation, whose debris.RemoveWhere(updateChunks)

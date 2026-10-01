@@ -77,6 +77,21 @@ namespace HeadlessServer
 
             /// <summary>Parsnip seeds handed to a newly created farmhand.</summary>
             public int StarterParsnipSeeds { get; set; } = 15;
+
+            /// <summary>Calendar year of a freshly created world.</summary>
+            public int StartingYear { get; set; } = 1;
+
+            /// <summary>Season of a freshly created world (0 = Spring, 1 = Summer, 2 = Fall, 3 = Winter).</summary>
+            public int StartingSeason { get; set; } = 0;
+
+            /// <summary>Day of the month, in [1, 28], for a freshly created world.</summary>
+            public int StartingDayOfMonth { get; set; } = 1;
+
+            /// <summary>
+            /// Whether the calendar and farm world are persisted to
+            /// <see cref="PathsSection.SaveDirectory"/> and restored on startup.
+            /// </summary>
+            public bool PersistWorld { get; set; } = true;
         }
 
         /// <summary>Simulation pacing.</summary>

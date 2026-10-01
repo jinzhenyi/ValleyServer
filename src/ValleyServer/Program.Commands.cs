@@ -30,6 +30,115 @@ namespace HeadlessServer
                 description: "Save every farmhand, disconnect clients and exit.",
                 handler: _ => RequestGracefulShutdown("the stop command"),
                 aliases: new[] { "shutdown", "quit" }));
+
+            RegisterSeasonCommands();
+        }
+
+        /// <summary>
+        /// Registers the calendar/season operator commands. All handlers run on the main
+        /// loop thread and therefore may touch game and world-save state directly.
+        /// </summary>
+        private static void RegisterSeasonCommands()
+        {
+            commandRegistry.Register(new ServerCommand(
+                name: "time",
+                usage: "time",
+                description: "Show the current in-game date and weather.",
+                handler: _ => PrintCalendar()));
+
+            commandRegistry.Register(new ServerCommand(
+                name: "setday",
+                usage: "setday <1-28>",
+                description: "Set the current day of the month.",
+                handler: args =>
+                {
+                    if (calendarService == null || args.Length != 1
+                        || !int.TryParse(args[0], out int day) || day < 1 || day > 28)
+                    {
+                        Console.WriteLine("[Commands] Usage: setday <1-28>");
+                        return;
+                    }
+                    CalendarSnapshot current = calendarService.Current;
+                    if (calendarService.SetDate(current.Year, current.SeasonIndex, day))
+                    {
+                        worldSaveManager?.Save();
+                    }
+                }));
+
+            commandRegistry.Register(new ServerCommand(
+                name: "setseason",
+                usage: "setseason <spring|summer|fall|winter>",
+                description: "Switch to another season and refresh the world.",
+                handler: args =>
+                {
+                    int season = ParseSeason(args);
+                    if (calendarService == null || season < 0)
+                    {
+                        Console.WriteLine("[Commands] Usage: setseason <spring|summer|fall|winter>");
+                        return;
+                    }
+                    CalendarSnapshot current = calendarService.Current;
+                    if (calendarService.SetDate(current.Year, season, current.DayOfMonth))
+                    {
+                        worldSaveManager?.Save();
+                    }
+                }));
+
+            commandRegistry.Register(new ServerCommand(
+                name: "advance",
+                usage: "advance [days]",
+                description: "Advance the calendar by N days (default 1); for debugging.",
+                handler: args =>
+                {
+                    if (calendarService == null)
+                    {
+                        return;
+                    }
+                    int days = 1;
+                    if (args.Length > 1 || (args.Length == 1 && !int.TryParse(args[0], out days)))
+                    {
+                        Console.WriteLine("[Commands] Usage: advance [days]");
+                        return;
+                    }
+                    if (days <= 0)
+                    {
+                        Console.WriteLine("[Commands] days must be a positive integer.");
+                        return;
+                    }
+                    calendarService.AdvanceDays(days);
+                    worldSaveManager?.Save();
+                }));
+        }
+
+        private static int ParseSeason(string[] args)
+        {
+            if (args.Length != 1)
+            {
+                return -1;
+            }
+            return args[0].ToLowerInvariant() switch
+            {
+                "spring" => 0,
+                "summer" => 1,
+                "fall" => 2,
+                "autumn" => 2,
+                "winter" => 3,
+                _ => -1
+            };
+        }
+
+        private static void PrintCalendar()
+        {
+            if (calendarService == null)
+            {
+                Console.WriteLine("[Commands] Season services are not initialized yet.");
+                return;
+            }
+            Console.WriteLine($"[Commands] Date: {calendarService.Current}");
+            if (weatherService != null)
+            {
+                Console.WriteLine($"[Commands] Weather: {weatherService.Current}");
+            }
         }
 
         /// <summary>
