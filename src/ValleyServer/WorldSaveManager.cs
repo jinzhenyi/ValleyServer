@@ -36,7 +36,10 @@ namespace HeadlessServer
     public interface IWorldSaveManager
     {
         string SavePath { get; }
+        /// <summary>Full save: calendar, weather and every location's state.</summary>
         void Save();
+        /// <summary>Cheap save: calendar and weather only. Safe to call during a day roll.</summary>
+        void SaveMetadata();
         bool TryLoad();
     }
 
@@ -100,28 +103,67 @@ namespace HeadlessServer
                     }
                 }
 
-                var metadata = new WorldSaveMetadata
-                {
-                    Version = WorldSaveMetadata.CurrentVersion,
-                    Year = snapshot.Year,
-                    SeasonIndex = snapshot.SeasonIndex,
-                    DayOfMonth = snapshot.DayOfMonth,
-                    IsRaining = weatherSnapshot.IsRaining,
-                    IsSnowing = weatherSnapshot.IsSnowing,
-                    IsLightning = weatherSnapshot.IsLightning,
-                    IsDebrisWeather = weatherSnapshot.IsDebrisWeather,
-                    WeatherForTomorrow = weatherSnapshot.WeatherForTomorrow,
-                    WeatherIcon = weatherSnapshot.WeatherIcon,
-                    Locations = written
-                };
-
+                WorldSaveMetadata metadata = BuildMetadata(written);
                 WriteMetadataAtomically(metadata);
-                Console.WriteLine($"[WorldSave] Saved {snapshot} with {written.Count} location(s) to {SavePath}.");
+                Console.WriteLine($"[WorldSave] Saved {calendar.Current} with {written.Count} location(s) to {SavePath}.");
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"[WorldSave] Save failed: {ex}");
             }
+        }
+
+        /// <summary>
+        /// Writes only <c>world.json</c> (calendar + weather + the location name list). This is
+        /// deliberately cheap so it can run on the main thread right after a day roll without
+        /// blocking the overnight network sync. The per-location XML files are written by
+        /// <see cref="Save"/> on clean shutdown.
+        /// </summary>
+        public void SaveMetadata()
+        {
+            if (!ServerConfig.Current.World.PersistWorld)
+            {
+                return;
+            }
+
+            try
+            {
+                Directory.CreateDirectory(SavePath);
+                var names = new List<string>();
+                foreach (GameLocation? location in Game1.locations)
+                {
+                    if (location != null && !string.IsNullOrWhiteSpace(location.NameOrUniqueName))
+                    {
+                        names.Add(location.NameOrUniqueName);
+                    }
+                }
+                WriteMetadataAtomically(BuildMetadata(names));
+                Console.WriteLine($"[WorldSave] Saved calendar metadata: {calendar.Current}.");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[WorldSave] Metadata save failed: {ex}");
+            }
+        }
+
+        private WorldSaveMetadata BuildMetadata(List<string> locations)
+        {
+            CalendarSnapshot snapshot = calendar.Current;
+            WeatherSnapshot weatherSnapshot = weather.Current;
+            return new WorldSaveMetadata
+            {
+                Version = WorldSaveMetadata.CurrentVersion,
+                Year = snapshot.Year,
+                SeasonIndex = snapshot.SeasonIndex,
+                DayOfMonth = snapshot.DayOfMonth,
+                IsRaining = weatherSnapshot.IsRaining,
+                IsSnowing = weatherSnapshot.IsSnowing,
+                IsLightning = weatherSnapshot.IsLightning,
+                IsDebrisWeather = weatherSnapshot.IsDebrisWeather,
+                WeatherForTomorrow = weatherSnapshot.WeatherForTomorrow,
+                WeatherIcon = weatherSnapshot.WeatherIcon,
+                Locations = locations
+            };
         }
 
         public bool TryLoad()

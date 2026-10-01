@@ -47,7 +47,6 @@ namespace HeadlessServer
         private static ICalendarService? calendarService;
         private static IWeatherService? weatherService;
         private static ISeasonalWorldUpdater? seasonalWorldUpdater;
-        private static ICropDayUpdater? cropDayUpdater;
         private static IWorldSaveManager? worldSaveManager;
 
         /// <summary>
@@ -60,16 +59,18 @@ namespace HeadlessServer
             weatherService = new WeatherService();
             var updater = new SeasonalWorldUpdater();
             seasonalWorldUpdater = updater;
-            cropDayUpdater = updater;
             worldSaveManager = new WorldSaveManager(calendarService, weatherService);
             calendarService.SeasonChanged += (_, current) => updater.ApplySeason((Season)current.SeasonIndex);
             Console.WriteLine("[Season] Season services initialized.");
         }
 
         /// <summary>
-        /// Main-thread completion of an overnight roll: validate/advance the calendar, roll
-        /// weather and run crop day updates when the vanilla path skipped them, then persist
-        /// the world so a crash does not lose the day.
+        /// Main-thread completion of an overnight roll. It validates/advances the calendar and
+        /// refreshes the networked weather, then persists the tiny calendar metadata. It
+        /// deliberately avoids heavy work (full world serialization, whole-world day updates)
+        /// here: the main loop must keep pumping the client overnight barriers, and blocking it
+        /// leaves clients on the black "waiting for players" screen. The full farm world is
+        /// written by <c>WorldSaveManager.Save</c> on graceful shutdown instead.
         /// </summary>
         private static void ProcessHeadlessDayRoll()
         {
@@ -84,14 +85,23 @@ namespace HeadlessServer
                 return;
             }
 
-            calendarService.ReconcileAfterOvernight(out _, out _);
-            if (calendarService.LastReconcileWasManual)
+            try
             {
-                weatherService?.RollForNewDay();
-                cropDayUpdater?.RunDayUpdate(Game1.dayOfMonth);
+                long started = Environment.TickCount64;
+                calendarService.ReconcileAfterOvernight(out _, out _);
+                if (calendarService.LastReconcileWasManual)
+                {
+                    weatherService?.RollForNewDay();
+                }
+                weatherService?.SyncToNetWorldState();
+                worldSaveManager?.SaveMetadata();
+                Console.WriteLine($"[Season] Day roll processed in {Environment.TickCount64 - started} ms.");
             }
-            weatherService?.SyncToNetWorldState();
-            worldSaveManager?.Save();
+            catch (Exception ex)
+            {
+                // A failure here must never take down the message loop or the overnight sync.
+                Console.WriteLine($"[Season] Day roll processing failed: {ex}");
+            }
         }
         // Vanilla drives the overnight network pump from the overnight worker. Keep the
         // headless main loop from concurrently entering the same game/network state.
