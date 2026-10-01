@@ -495,7 +495,12 @@ namespace HeadlessServer
             {
                 calendarService!.InitializeFromConfig();
             }
-            seasonalWorldUpdater!.ApplySeason((Season)calendarService!.Current.SeasonIndex);
+            // A freshly generated world already loads Spring tile sheets. Only re-apply when the
+            // current season differs, to avoid touching map data unnecessarily at startup.
+            if (calendarService!.Current.SeasonIndex != 0)
+            {
+                seasonalWorldUpdater!.ApplySeason((Season)calendarService.Current.SeasonIndex);
+            }
             Console.WriteLine($"[Season] World season ready: {calendarService.Current}, weather={weatherService!.Current}.");
 
             // The location update path queries the music system (getMusicTrackName via
@@ -832,7 +837,9 @@ namespace HeadlessServer
                                          clientFarmerRoot.ReadConnectionPacket(incomingMsg.Reader);
                                          var clientFarmer = clientFarmerRoot.Value;
                                          long newClientId = clientFarmer.UniqueMultiplayerID;
-                                         Console.WriteLine($"Client requested farmhand ID: {newClientId}, Name: {clientFarmer.Name}");
+                                         Console.WriteLine($"Client requested farmhand ID: {newClientId}, Name: {clientFarmer.Name}, " +
+                                                           $"isCustomized={clientFarmer.isCustomized.Value}, home='{clientFarmer.homeLocation.Value}', " +
+                                                           $"savedFarmhands={savedFarmhandCatalog.Count}");
 
                                          // Register client farmhand
                                          Game1.otherFarmers.Roots[newClientId] = clientFarmerRoot;

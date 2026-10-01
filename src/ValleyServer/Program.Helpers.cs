@@ -689,6 +689,25 @@ namespace HeadlessServer
                             {
                                 Game1.netWorldState.Value.farmhandData[farmer.UniqueMultiplayerID] = farmer;
                             }
+
+                            // Cabins get fresh unique names on every server start, so a saved
+                            // farmhand's home location (a FarmHouse name from a previous run) can
+                            // reference a location that no longer exists. A client receiving such a
+                            // dangling home ref can fail while resolving it, so re-assign a valid
+                            // cabin/bed here, before the world state is ever sent to a client.
+                            string oldHome = farmer.homeLocation.Value;
+                            if (string.IsNullOrWhiteSpace(oldHome) || Game1.getLocationFromName(oldHome) == null)
+                            {
+                                try
+                                {
+                                    bool repaired = Game1.netWorldState.Value.TryAssignFarmhandHome(farmer);
+                                    Console.WriteLine($"[FarmhandHome] {farmer.UniqueMultiplayerID} stale home '{oldHome}' -> '{farmer.homeLocation.Value}' assigned={repaired}.");
+                                }
+                                catch (Exception homeEx)
+                                {
+                                    Console.WriteLine($"[FarmhandHome] Could not repair home for {farmer.UniqueMultiplayerID}: {homeEx.Message}");
+                                }
+                            }
                         }
                     }
                 }

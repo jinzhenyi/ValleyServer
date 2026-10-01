@@ -21,7 +21,7 @@ namespace HeadlessServer
         public bool IsSnowing { get; set; }
         public bool IsLightning { get; set; }
         public bool IsDebrisWeather { get; set; }
-        public int WeatherForTomorrow { get; set; }
+        public string WeatherForTomorrow { get; set; } = "";
         public int WeatherIcon { get; set; }
         public List<string> Locations { get; set; } = new List<string>();
 
@@ -330,12 +330,12 @@ namespace HeadlessServer
                 {
                     return;
                 }
-                WriteBoolMember(worldState, "isRaining", metadata.IsRaining);
-                WriteBoolMember(worldState, "isSnowing", metadata.IsSnowing);
-                WriteBoolMember(worldState, "isLightning", metadata.IsLightning);
-                WriteBoolMember(worldState, "isDebrisWeather", metadata.IsDebrisWeather);
-                WriteIntMember(worldState, "weatherForTomorrow", metadata.WeatherForTomorrow);
-                WriteIntMember(worldState, "weatherIcon", metadata.WeatherIcon);
+                WriteValueMember(worldState, "isRaining", metadata.IsRaining);
+                WriteValueMember(worldState, "isSnowing", metadata.IsSnowing);
+                WriteValueMember(worldState, "isLightning", metadata.IsLightning);
+                WriteValueMember(worldState, "isDebrisWeather", metadata.IsDebrisWeather);
+                WriteValueMember(worldState, "weatherForTomorrow", metadata.WeatherForTomorrow);
+                WriteValueMember(worldState, "weatherIcon", metadata.WeatherIcon);
             }
             catch (Exception ex)
             {
@@ -343,32 +343,47 @@ namespace HeadlessServer
             }
         }
 
-        private static void WriteBoolMember(object target, string name, bool value)
+        /// <summary>
+        /// Writes a value into a net field, but only when the target's value type is
+        /// assignment-compatible. 1.6 stores some weather members as strings and others as
+        /// ints, so coercing by name alone is unsafe; a mismatch is skipped instead of thrown.
+        /// </summary>
+        private static void WriteValueMember(object target, string name, object? value)
         {
             object? member = ReadMember(target, name);
             if (member == null)
             {
                 return;
             }
-            PropertyInfo? valueProperty = member.GetType().GetProperty("Value");
-            if (valueProperty != null && valueProperty.CanWrite)
-            {
-                valueProperty.SetValue(member, value);
-            }
-        }
 
-        private static void WriteIntMember(object target, string name, int value)
-        {
-            object? member = ReadMember(target, name);
-            if (member == null)
+            Type memberType = member.GetType();
+            PropertyInfo? valueProperty = memberType.GetProperty("Value");
+            if (valueProperty == null || !valueProperty.CanWrite)
             {
                 return;
             }
-            PropertyInfo? valueProperty = member.GetType().GetProperty("Value");
-            if (valueProperty != null && valueProperty.CanWrite)
+
+            Type targetType = Nullable.GetUnderlyingType(valueProperty.PropertyType) ?? valueProperty.PropertyType;
+            if (value == null)
             {
-                valueProperty.SetValue(member, value);
+                return;
             }
+            if (targetType != value.GetType())
+            {
+                if (targetType == typeof(string))
+                {
+                    value = value.ToString();
+                }
+                else if (targetType == typeof(int) && value is string s && int.TryParse(s, out int parsed))
+                {
+                    value = parsed;
+                }
+                else
+                {
+                    return;
+                }
+            }
+            valueProperty.SetValue(member, value);
         }
 
         private static object? ReadMember(object target, string name)

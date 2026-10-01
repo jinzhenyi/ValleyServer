@@ -12,7 +12,7 @@ namespace HeadlessServer
         bool IsSnowing,
         bool IsLightning,
         bool IsDebrisWeather,
-        int WeatherForTomorrow,
+        string WeatherForTomorrow,
         int WeatherIcon)
     {
         public override string ToString() =>
@@ -96,7 +96,7 @@ namespace HeadlessServer
                 ReadBoolMember(worldState, "isSnowing"),
                 ReadBoolMember(worldState, "isLightning"),
                 ReadBoolMember(worldState, "isDebrisWeather"),
-                ReadIntMember(worldState, "weatherForTomorrow"),
+                ReadStringMember(worldState, "weatherForTomorrow"),
                 ReadIntMember(worldState, "weatherIcon"));
         }
 
@@ -124,30 +124,40 @@ namespace HeadlessServer
             return property?.GetValue(target);
         }
 
+        /// <summary>Unwraps a net field (which exposes <c>Value</c>) or returns the member itself.</summary>
+        private static object? Unwrap(object? member)
+        {
+            if (member == null)
+            {
+                return null;
+            }
+            return member.GetType().GetProperty("Value")?.GetValue(member) ?? member;
+        }
+
         private static bool ReadBoolMember(object target, string name)
         {
-            object? value = ReadMember(target, name);
-            if (value == null)
-            {
-                return false;
-            }
-            object? inner = value.GetType().GetProperty("Value")?.GetValue(value);
-            return inner is bool b ? b : false;
+            return Unwrap(ReadMember(target, name)) is bool b && b;
         }
 
         private static int ReadIntMember(object target, string name)
         {
-            object? value = ReadMember(target, name);
-            if (value == null)
+            return Unwrap(ReadMember(target, name)) switch
             {
-                return 0;
-            }
-            object? inner = value.GetType().GetProperty("Value")?.GetValue(value);
-            if (inner is int i)
+                int i => i,
+                long l => (int)l,
+                _ => 0
+            };
+        }
+
+        private static string ReadStringMember(object target, string name)
+        {
+            return Unwrap(ReadMember(target, name)) switch
             {
-                return i;
-            }
-            return value is int direct ? direct : 0;
+                string s => s,
+                int i => i.ToString(),
+                null => "",
+                object o => o.ToString() ?? ""
+            };
         }
     }
 }
